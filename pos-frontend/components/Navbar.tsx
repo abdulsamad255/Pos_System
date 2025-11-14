@@ -58,6 +58,15 @@ export function Navbar() {
             <span className="text-sm text-gray-700">
               {user.name} ({user.role})
             </span>
+
+            {/* New Profile link for any logged-in user */}
+            <Link
+              href="/profile"
+              className="text-sm text-blue-600 hover:underline"
+            >
+              Profile
+            </Link>
+
             <button
               onClick={logout}
               className="rounded bg-red-500 px-3 py-1 text-sm font-medium text-white hover:bg-red-600"
