@@ -31,12 +31,25 @@ export function Navbar() {
           Sales
         </Link>
 
-        <Link
-          href="/reports"
-          className="text-sm text-blue-600 hover:underline"
-        >
-          Reports
-        </Link>
+        {/* Reports visible only for managers */}
+        {user && user.role === "manager" && (
+          <Link
+            href="/reports"
+            className="text-sm text-blue-600 hover:underline"
+          >
+            Reports
+          </Link>
+        )}
+
+        {/* Users (user management) visible only for managers */}
+        {user && user.role === "manager" && (
+          <Link
+            href="/admin/users"
+            className="text-sm text-blue-600 hover:underline"
+          >
+            Users
+          </Link>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

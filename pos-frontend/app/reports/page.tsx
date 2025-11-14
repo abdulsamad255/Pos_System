@@ -2,227 +2,246 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ProtectedPage } from "@/components/ProtectedPage";
+import { ManagerPage } from "@/components/ManagerPage";
 import { apiFetch } from "@/lib/api";
-import type {
-  SalesSummary,
-  DailySalesRow,
-  TopProductRow,
-} from "@/lib/types";
 
-function defaultFromDate() {
-  const d = new Date();
-  d.setDate(d.getDate() - 6); // last 7 days
-  return d.toISOString().slice(0, 10);
-}
+type Summary = {
+  total_sales_count?: number;
+  total_revenue?: number;
+  total_items_sold?: number;
+  // in case your backend uses camelCase:
+  totalSalesCount?: number;
+  totalRevenue?: number;
+  totalItemsSold?: number;
+};
 
-function defaultToDate() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
-}
+type DailyRow = {
+  date?: string;
+  total_revenue?: number;
+  total_sales_count?: number;
+  total_items_sold?: number;
+  totalRevenue?: number;
+  totalSalesCount?: number;
+  totalItemsSold?: number;
+};
+
+type TopProductRow = {
+  product_id?: number;
+  product_name?: string;
+  total_quantity_sold?: number;
+  total_revenue?: number;
+  productId?: number;
+  productName?: string;
+  totalQuantitySold?: number;
+  totalRevenue?: number;
+};
 
 export default function ReportsPage() {
-  const [fromDate, setFromDate] = useState(defaultFromDate);
-  const [toDate, setToDate] = useState(defaultToDate);
+  // Default range = last 7 days
+  const today = new Date();
+  const toDefault = today.toISOString().slice(0, 10);
+  const fromDefault = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 
-  const [summary, setSummary] = useState<SalesSummary | null>(null);
+  const [from, setFrom] = useState(fromDefault);
+  const [to, setTo] = useState(toDefault);
 
-  // 👇 allow null internally, and treat it as [] when rendering
-  const [daily, setDaily] = useState<DailySalesRow[] | null>(null);
-  const [topProducts, setTopProducts] = useState<TopProductRow[] | null>(null);
-
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [daily, setDaily] = useState<DailyRow[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProductRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadReports = async () => {
-    setError(null);
-    setLoading(true);
-
-    try {
-      const query = `?from=${fromDate}&to=${toDate}`;
-
-      const [summaryRes, dailyRes, topRes] = await Promise.all([
-        apiFetch<SalesSummary>(`/api/reports/summary${query}`),
-        apiFetch<DailySalesRow[]>(`/api/reports/daily${query}`),
-        apiFetch<TopProductRow[]>(`/api/reports/top-products${query}&limit=5`),
-      ]);
-
-      setSummary(summaryRes);
-      setDaily(dailyRes ?? []); // 👈 ensure array, never null
-      setTopProducts(topRes ?? []); // 👈 ensure array, never null
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to load reports");
-      // On error, treat as empty to keep UI stable
-      setSummary(null);
-      setDaily([]);
-      setTopProducts([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    // initial load
-    loadReports();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    setLoading(true);
+    setError(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    loadReports();
+    const params = `?from=${from}&to=${to}`;
+
+    Promise.all([
+      apiFetch<Summary>(`/api/reports/summary${params}`),
+      apiFetch<DailyRow[]>(`/api/reports/daily${params}`),
+      apiFetch<TopProductRow[]>(`/api/reports/top-products${params}`),
+    ])
+      .then(([summaryData, dailyData, topData]) => {
+        setSummary(summaryData || null);
+        setDaily(dailyData || []);
+        setTopProducts(topData || []);
+      })
+      .catch((err: any) => {
+        setError(err?.message ?? "Failed to load reports");
+      })
+      .finally(() => setLoading(false));
+  }, [from, to]);
+
+  // Helpers to safely read values if backend uses snake_case or camelCase
+  const getSummaryValue = (fieldSnake: keyof Summary, fieldCamel: keyof Summary) => {
+    if (!summary) return "-";
+    const snake = summary[fieldSnake];
+    const camel = summary[fieldCamel];
+    return (snake ?? camel ?? "-") as any;
   };
 
-  // 👇 safe lists so we never call .length on null
-  const dailyList = daily ?? [];
-  const topList = topProducts ?? [];
+  const formatNumber = (value: any, fractionDigits = 2) => {
+    if (typeof value === "number") return value.toFixed(fractionDigits);
+    return value ?? "-";
+  };
 
   return (
-    <ProtectedPage>
+    <ManagerPage>
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold">Reports</h1>
+        <h1 className="text-xl font-bold">Sales Reports (Manager only)</h1>
 
         {/* Date range filters */}
-        <form
-          className="flex flex-col gap-3 rounded border bg-white p-4 md:flex-row md:items-center md:justify-between"
-          onSubmit={handleSubmit}
-        >
-          <div className="flex flex-col gap-3 md:flex-row md:items-center">
-            <div>
-              <label className="mb-1 block text-sm font-medium">From</label>
-              <input
-                type="date"
-                className="rounded border px-3 py-2 text-sm"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">To</label>
-              <input
-                type="date"
-                className="rounded border px-3 py-2 text-sm"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-                required
-              />
-            </div>
+        <div className="flex flex-wrap items-end gap-3 rounded border bg-white p-3 text-sm">
+          <div>
+            <label className="mb-1 block font-medium">From</label>
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="rounded border px-2 py-1"
+            />
           </div>
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-60"
-            >
-              {loading ? "Loading..." : "Load Reports"}
-            </button>
-          </div>
-        </form>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+          <div>
+            <label className="mb-1 block font-medium">To</label>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="rounded border px-2 py-1"
+            />
+          </div>
+
+          {loading && (
+            <span className="text-xs text-gray-600">Loading...</span>
+          )}
+          {error && <span className="text-xs text-red-600">{error}</span>}
+        </div>
 
         {/* Summary card */}
-        <section className="rounded border bg-white p-4">
-          <h2 className="mb-2 text-lg font-bold">Summary</h2>
-          {!summary && !loading && (
-            <p className="text-sm text-gray-600">No data available.</p>
-          )}
-          {summary && (
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <p className="text-sm text-gray-600">Total Sales</p>
-                <p className="text-xl font-bold">{summary.total_sales}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Total Revenue</p>
-                <p className="text-xl font-bold">
-                  {summary.total_revenue.toFixed(2)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Total Items Sold</p>
-                <p className="text-xl font-bold">{summary.total_items}</p>
-              </div>
-            </div>
-          )}
+        <section className="grid gap-4 md:grid-cols-3">
+          <div className="rounded border bg-white p-3 text-sm">
+            <h2 className="mb-2 font-semibold">Summary</h2>
+            <p>
+              <span className="text-gray-600">Total sales:</span>{" "}
+              {getSummaryValue("total_sales_count", "totalSalesCount")}
+            </p>
+            <p>
+              <span className="text-gray-600">Total revenue:</span>{" "}
+              {formatNumber(
+                getSummaryValue("total_revenue", "totalRevenue"),
+                2
+              )}
+            </p>
+            <p>
+              <span className="text-gray-600">Total items sold:</span>{" "}
+              {getSummaryValue("total_items_sold", "totalItemsSold")}
+            </p>
+          </div>
         </section>
 
         {/* Daily sales table */}
-        <section className="rounded border bg-white p-4">
-          <h2 className="mb-2 text-lg font-bold">Daily Sales</h2>
-          {dailyList.length === 0 && !loading && (
-            <p className="text-sm text-gray-600">No daily data.</p>
-          )}
-          {dailyList.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-100">
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Daily sales</h2>
+          <div className="overflow-x-auto rounded border bg-white text-sm">
+            <table className="min-w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left">Date</th>
+                  <th className="px-3 py-2 text-right">Revenue</th>
+                  <th className="px-3 py-2 text-right">Sales count</th>
+                  <th className="px-3 py-2 text-right">Items sold</th>
+                </tr>
+              </thead>
+              <tbody>
+                {daily.length === 0 && (
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">Date</th>
-                    <th className="px-3 py-2 text-right font-medium">
-                      Sales
-                    </th>
-                    <th className="px-3 py-2 text-right font-medium">
-                      Revenue
-                    </th>
+                    <td
+                      colSpan={4}
+                      className="px-3 py-4 text-center text-gray-500"
+                    >
+                      No data for this period.
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {dailyList.map((row) => (
-                    <tr key={row.date} className="border-t">
-                      <td className="px-3 py-2">{row.date}</td>
-                      <td className="px-3 py-2 text-right">
-                        {row.total_sales}
+                )}
+                {daily.map((row, idx) => {
+                  const revenue = row.total_revenue ?? row.totalRevenue;
+                  const salesCount =
+                    row.total_sales_count ?? row.totalSalesCount;
+                  const itemsSold =
+                    row.total_items_sold ?? row.totalItemsSold;
+
+                  return (
+                    <tr key={idx} className="border-t">
+                      <td className="px-3 py-2">
+                        {row.date ?? "-"}
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {row.total_revenue.toFixed(2)}
+                        {formatNumber(revenue, 2)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {salesCount ?? "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {itemsSold ?? "-"}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </section>
 
-        {/* Top products */}
-        <section className="rounded border bg-white p-4">
-          <h2 className="mb-2 text-lg font-bold">Top Products</h2>
-          {topList.length === 0 && !loading && (
-            <p className="text-sm text-gray-600">No top products data.</p>
-          )}
-          {topList.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-100">
+        {/* Top products table */}
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Top products</h2>
+          <div className="overflow-x-auto rounded border bg-white text-sm">
+            <table className="min-w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left">Product</th>
+                  <th className="px-3 py-2 text-right">Quantity sold</th>
+                  <th className="px-3 py-2 text-right">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topProducts.length === 0 && (
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">
-                      Product
-                    </th>
-                    <th className="px-3 py-2 text-right font-medium">
-                      Quantity
-                    </th>
-                    <th className="px-3 py-2 text-right font-medium">
-                      Revenue
-                    </th>
+                    <td
+                      colSpan={3}
+                      className="px-3 py-4 text-center text-gray-500"
+                    >
+                      No data for this period.
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {topList.map((p) => (
-                    <tr key={p.product_id} className="border-t">
-                      <td className="px-3 py-2">{p.product_name}</td>
-                      <td className="px-3 py-2 text-right">{p.quantity}</td>
+                )}
+                {topProducts.map((row, idx) => {
+                  const name = row.product_name ?? row.productName ?? "-";
+                  const qty =
+                    row.total_quantity_sold ?? row.totalQuantitySold;
+                  const revenue = row.total_revenue ?? row.totalRevenue;
+
+                  return (
+                    <tr key={idx} className="border-t">
+                      <td className="px-3 py-2">{name}</td>
                       <td className="px-3 py-2 text-right">
-                        {p.revenue.toFixed(2)}
+                        {qty ?? "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatNumber(revenue, 2)}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
-    </ProtectedPage>
+    </ManagerPage>
   );
 }
