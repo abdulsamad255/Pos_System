@@ -1,7 +1,7 @@
-// app/pos/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ProtectedPage } from "@/components/ProtectedPage";
 import { apiFetch } from "@/lib/api";
 import type { Product, Sale } from "@/lib/types";
@@ -12,7 +12,8 @@ type CartItem = {
 };
 
 export default function POSPage() {
-  // allow null internally and treat as [] when rendering
+  const router = useRouter();
+
   const [products, setProducts] = useState<Product[] | null>(null);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [productsError, setProductsError] = useState<string | null>(null);
@@ -21,7 +22,7 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[] | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash");
-  const [paidAmount, setPaidAmount] = useState<number>(0);
+  const [paidAmount, setPaidAmount] = useState<string>(""); // now string for manual input
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null);
@@ -44,11 +45,10 @@ export default function POSPage() {
       });
   }, []);
 
-  // safe lists so we never read .length from null
   const productList = products ?? [];
   const cartList = cart ?? [];
 
-  // Filtered products by search string
+  // Filter products by search
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return productList;
@@ -67,7 +67,7 @@ export default function POSPage() {
       const current = prev ?? [];
       const existing = current.find((ci) => ci.product.id === product.id);
       if (!existing) {
-        if (product.stock <= 0) return current; // can't add if no stock
+        if (product.stock <= 0) return current;
         return [...current, { product, quantity: 1 }];
       }
 
@@ -102,6 +102,7 @@ export default function POSPage() {
 
   const clearCart = () => {
     setCart([]);
+    setPaidAmount(""); // clear paid amount manually
   };
 
   // Totals
@@ -114,16 +115,12 @@ export default function POSPage() {
     [cartList]
   );
 
-  // Keep paidAmount in sync when subtotal changes (if cart non-empty)
+  // Clear paidAmount when cart becomes empty
   useEffect(() => {
     if (cartList.length === 0) {
-      setPaidAmount(0);
-    } else {
-      setPaidAmount((current) =>
-        current === 0 ? Number(cartSubtotal.toFixed(2)) : current
-      );
+      setPaidAmount("");
     }
-  }, [cartSubtotal, cartList.length]);
+  }, [cartList.length]);
 
   const handleCheckout = async () => {
     setCheckoutError(null);
@@ -134,7 +131,9 @@ export default function POSPage() {
       return;
     }
 
-    if (paidAmount < 0) {
+    const paidNumber = parseFloat(paidAmount) || 0;
+
+    if (paidNumber < 0) {
       setCheckoutError("Paid amount cannot be negative.");
       return;
     }
@@ -145,10 +144,9 @@ export default function POSPage() {
         items: cartList.map((ci) => ({
           product_id: ci.product.id,
           quantity: ci.quantity,
-          // unit_price omitted: backend will use current product price
         })),
-      payment_method: paymentMethod,
-      paid_amount: paidAmount,
+        payment_method: paymentMethod,
+        paid_amount: paidNumber,
       };
 
       const sale = await apiFetch<Sale>("/api/sales", {
@@ -163,7 +161,7 @@ export default function POSPage() {
       );
       clearCart();
 
-      // Refresh products to update stock
+      // Refresh products
       setLoadingProducts(true);
       apiFetch<Product[]>("/api/products")
         .then((data) => {
@@ -176,6 +174,8 @@ export default function POSPage() {
         .finally(() => {
           setLoadingProducts(false);
         });
+
+      router.push(`/sales/${sale.id}`);
     } catch (err: any) {
       setCheckoutError(err?.message ?? "Failed to create sale");
     } finally {
@@ -215,12 +215,8 @@ export default function POSPage() {
                     <th className="px-2 py-2 text-left font-medium">Name</th>
                     <th className="px-2 py-2 text-left font-medium">SKU</th>
                     <th className="px-2 py-2 text-right font-medium">Price</th>
-                    <th className="px-2 py-2 text-right font-medium">
-                      Stock
-                    </th>
-                    <th className="px-2 py-2 text-right font-medium">
-                      Action
-                    </th>
+                    <th className="px-2 py-2 text-right font-medium">Stock</th>
+                    <th className="px-2 py-2 text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -274,27 +270,17 @@ export default function POSPage() {
                   <tr>
                     <th className="px-2 py-2 text-left font-medium">Item</th>
                     <th className="px-2 py-2 text-right font-medium">Qty</th>
-                    <th className="px-2 py-2 text-right font-medium">
-                      Price
-                    </th>
-                    <th className="px-2 py-2 text-right font-medium">
-                      Total
-                    </th>
-                    <th className="px-2 py-2 text-right font-medium">
-                      Remove
-                    </th>
+                    <th className="px-2 py-2 text-right font-medium">Price</th>
+                    <th className="px-2 py-2 text-right font-medium">Total</th>
+                    <th className="px-2 py-2 text-right font-medium">Remove</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cartList.map((ci) => (
                     <tr key={ci.product.id} className="border-t">
                       <td className="px-2 py-2">
-                        <div className="text-sm font-medium">
-                          {ci.product.name}
-                        </div>
-                        <div className="text-xs text-gray-600">
-                          SKU: {ci.product.sku}
-                        </div>
+                        <div className="text-sm font-medium">{ci.product.name}</div>
+                        <div className="text-xs text-gray-600">SKU: {ci.product.sku}</div>
                       </td>
                       <td className="px-2 py-2 text-right">
                         <input
@@ -303,10 +289,7 @@ export default function POSPage() {
                           max={ci.product.stock}
                           value={ci.quantity}
                           onChange={(e) =>
-                            updateCartQuantity(
-                              ci.product.id,
-                              Number(e.target.value)
-                            )
+                            updateCartQuantity(ci.product.id, Number(e.target.value))
                           }
                           className="w-16 rounded border px-2 py-1 text-sm"
                         />
@@ -314,12 +297,8 @@ export default function POSPage() {
                           Stock: {ci.product.stock}
                         </div>
                       </td>
-                      <td className="px-2 py-2 text-right">
-                        {ci.product.price.toFixed(2)}
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        {(ci.product.price * ci.quantity).toFixed(2)}
-                      </td>
+                      <td className="px-2 py-2 text-right">{ci.product.price.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right">{(ci.product.price * ci.quantity).toFixed(2)}</td>
                       <td className="px-2 py-2 text-right">
                         <button
                           onClick={() => removeFromCart(ci.product.id)}
@@ -338,16 +317,12 @@ export default function POSPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Subtotal:</span>
-              <span className="text-lg font-bold">
-                {cartSubtotal.toFixed(2)}
-              </span>
+              <span className="text-lg font-bold">{cartSubtotal.toFixed(2)}</span>
             </div>
 
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <label className="mb-1 block text-sm font-medium">
-                  Payment Method
-                </label>
+                <label className="mb-1 block text-sm font-medium">Payment Method</label>
                 <select
                   value={paymentMethod}
                   onChange={(e) =>
@@ -361,26 +336,22 @@ export default function POSPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-sm font-medium">
-                  Paid Amount
-                </label>
+                <label className="mb-1 block text-sm font-medium">Paid Amount</label>
                 <input
-                  type="number"
+                  type="text"
                   className="w-full rounded border px-3 py-2 text-sm md:w-40"
                   value={paidAmount}
-                  onChange={(e) => setPaidAmount(Number(e.target.value))}
-                  min={0}
-                  step="0.01"
+                  onChange={(e) => {
+                    let cleaned = e.target.value.replace(/[^0-9]/g, "");
+                    cleaned = cleaned.replace(/^0+(?=\d)/, "");
+                    setPaidAmount(cleaned);
+                  }}
                 />
               </div>
             </div>
 
-            {checkoutError && (
-              <p className="text-sm text-red-600">{checkoutError}</p>
-            )}
-            {checkoutSuccess && (
-              <p className="text-sm text-gray-700">{checkoutSuccess}</p>
-            )}
+            {checkoutError && <p className="text-sm text-red-600">{checkoutError}</p>}
+            {checkoutSuccess && <p className="text-sm text-gray-700">{checkoutSuccess}</p>}
 
             <button
               onClick={handleCheckout}
